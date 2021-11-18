@@ -47,6 +47,10 @@ options(
 
 scale_color.discrete = scale_color_viridis_d
 scale_fill_discrete = scale_fill_viridis_d
+
+#every time when set up the random numbers,
+#give the same numbers each time
+set.seed(1)
 ```
 
 ## Let’s simulate something
@@ -78,7 +82,7 @@ sim_mean_sd(30)
     ## # A tibble: 1 × 2
     ##    mean    sd
     ##   <dbl> <dbl>
-    ## 1  3.63  4.42
+    ## 1  3.33  3.70
 
 ## Let’s simulate a lot
 
@@ -97,16 +101,16 @@ bind_rows(output)
     ## # A tibble: 100 × 2
     ##     mean    sd
     ##    <dbl> <dbl>
-    ##  1  3.45  3.40
-    ##  2  3.69  3.76
-    ##  3  4.14  4.13
-    ##  4  3.10  4.81
-    ##  5  3.50  4.25
-    ##  6  2.60  4.17
-    ##  7  2.99  4.03
-    ##  8  3.75  4.21
-    ##  9  3.67  4.09
-    ## 10  3.28  4.72
+    ##  1  3.53  3.18
+    ##  2  3.44  3.84
+    ##  3  3.45  3.53
+    ##  4  1.68  3.69
+    ##  5  3.95  4.22
+    ##  6  3.27  4.34
+    ##  7  2.05  4.05
+    ##  8  3.10  3.72
+    ##  9  3.55  4.11
+    ## 10  3.87  3.79
     ## # … with 90 more rows
 
 Let’s use a loop function!!!
@@ -138,7 +142,7 @@ simulation_results %>%
     ## # A tibble: 1 × 2
     ##   average_samp_mean sd_samp_mean
     ##               <dbl>        <dbl>
-    ## 1              2.92        0.729
+    ## 1              2.98        0.756
 
 ``` r
 simulation_results %>% 
@@ -146,3 +150,79 @@ simulation_results %>%
 ```
 
 <img src="simulation_files/figure-gfm/unnamed-chunk-5-2.png" width="90%" />
+
+## Let’s try other sample sizes
+
+``` r
+n_list = 
+  list(
+    "n = 30" = 30,
+    "n = 60" = 60,
+    "n = 120" = 120,
+    "n = 240" = 240
+  )
+
+output = vector("list", length = 4)
+
+#goal - output[[1]] = f(input[[1]])
+
+#1 - this method is redundant
+output[[1]] = rerun(100, sim_mean_sd(samp_size = n_list[[1]])) %>%  bind_rows()
+output[[2]] = rerun(100, sim_mean_sd(samp_size = n_list[[2]])) %>%  bind_rows()
+output[[3]] = rerun(100, sim_mean_sd(samp_size = n_list[[3]])) %>%  bind_rows()
+output[[4]] = rerun(100, sim_mean_sd(samp_size = n_list[[4]])) %>%  bind_rows()
+
+
+#2 - use a for lopp
+for (i in 1:4){
+  
+  output[[i]] = 
+    rerun(100, sim_mean_sd(samp_size = n_list[[i]])) %>% 
+    bind_rows()
+}
+```
+
+``` r
+sim_results = 
+  tibble(
+    sample_size = c(30, 60, 120, 240)
+  ) %>% 
+    mutate(
+      output_lists = map(.x = sample_size, ~ rerun(10, sim_mean_sd(.x))),
+      estimate_df = map(output_lists, bind_rows)
+    ) %>% 
+    select(-output_lists) %>% 
+    #expand the dfs
+    unnest(estimate_df)
+```
+
+Do some data frame things
+
+``` r
+sim_results %>% 
+  mutate(
+    sample_size = str_c("n = ", sample_size),
+    sample_size = fct_inorder(sample_size)
+  ) %>% 
+  ggplot(aes(x = sample_size, y = mean)) +
+  geom_violin()
+```
+
+<img src="simulation_files/figure-gfm/unnamed-chunk-8-1.png" width="90%" />
+
+``` r
+sim_results %>% 
+  group_by(sample_size) %>% 
+  summarize(
+    avg_samp_mean = mean(mean),
+    sd_samp_mean = sd(mean)
+  )
+```
+
+    ## # A tibble: 4 × 3
+    ##   sample_size avg_samp_mean sd_samp_mean
+    ##         <dbl>         <dbl>        <dbl>
+    ## 1          30          2.80        0.630
+    ## 2          60          3.17        0.401
+    ## 3         120          2.98        0.197
+    ## 4         240          2.97        0.196
