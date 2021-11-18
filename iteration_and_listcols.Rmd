@@ -127,6 +127,67 @@ output = map(list_norm, IQR)
 ```
 
 
+```{r}
+#double
+output = map_dbl(list_norm, median)
+```
+
+```{r}
+output = map_df(list_norm, mean_and_sd, .id = "input")
+```
+
+## List columns
+
+```{r}
+listcol_df =
+  tibble(
+    name = c("a", "b", "c", "d"),
+    samp = list_norm
+  )
+```
+
+```{r}
+listcol_df %>% pull(name)
+listcol_df %>% pull(samp)
+
+listcol_df %>% 
+  filter(name == "a")
+
+```
+
+Let's try some operations
+
+```{r}
+listcol_df$samp
+listcol_df$samp[[1]]
+mean_and_sd(listcol_df$samp[[2]])
+
+```
+
+can I just ... map?
+```{r}
+map(listcol_df$samp, mean_and_sd)
+```
+
+
+So can I add a list column to the existing df?
+
+```{r}
+listcol_df = 
+  listcol_df %>% 
+    mutate(summary = map(samp,mean_and_sd),
+           medians = map_dbl(samp, median))
+
+
+
+```
+
+
+
+
+
+
+
 
 
 
