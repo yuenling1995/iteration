@@ -1,0 +1,266 @@
+---
+title: "homework5"
+output: html_document
+date: '2022-06-27'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(rvest)
+
+knitr::opts_chunk$set(
+  fig.width = 6,
+  fig.asp = 0.6,
+  out.width = "90%"
+)
+
+theme_set(theme_minimal() + theme(legend.position = "bottom"))
+
+options(
+  ggplot2.continuous.color = "viridis",
+  ggplot2.continuous.fill = "viridis"
+)
+
+scale_color.discrete = scale_color_viridis_d
+scale_fill_discrete = scale_fill_viridis_d
+```
+
+## Problem 1
+
+Create a city_state variable (e.g. “Baltimore, MD”) and then summarize within cities to obtain the total number of homicides and the number of unsolved homicides (those for which the disposition is “Closed without arrest” or “Open/No arrest”).
+
+```{r}
+# import data from the web
+homicide = read_csv("https://raw.githubusercontent.com/washingtonpost/data-homicides/master/homicide-data.csv") %>% 
+  mutate(city_state = paste(city, state, sep = ", "),
+  resolution = case_when(
+    disposition == "Closed without arrest" ~ "unsolved",
+    disposition == "Open/No arrest" ~ "unsolved",
+    disposition == "Closed by arrest" ~ "solved"
+  ),
+  resolution = as.factor(resolution)) %>% 
+  relocate(city_state) %>% 
+  filter(city_state != "Tulsa, AL")
+
+arrest = homicide %>% 
+  filter(disposition == "Closed by arrest") %>% 
+  group_by(city_state) %>% 
+  count() 
+sum(arrest$n) # 25674
+  
+no_arrest = homicide %>% 
+  filter(disposition %in% c("Closed without arrest", "Open/No arrest")) %>% 
+  group_by(city_state) %>% 
+  count()
+sum(no_arrest$n)  # 26505
+
+```
+
+For the city of Baltimore, MD, use the prop.test function to estimate the proportion of homicides that are unsolved; save the output of prop.test as an R object, apply the broom::tidy to this object and pull the estimated proportion and confidence intervals from the resulting tidy dataframe.
+
+```{r}
+baltimore = homicide %>% 
+  filter(city_state == "Baltimore, MD") 
+
+baltimore_summary = 
+  baltimore %>% 
+  summarize(
+    total = n(),
+    unsolved = sum(resolution == "unsolved")
+  )
+
+baltimore_test = 
+  prop.test(x = baltimore_summary$unsolved, n = baltimore_summary$total) %>% 
+  broom::tidy()
+
+baltimore_test_df = 
+  baltimore_test %>% 
+  select(estimate, conf.low, conf.high)
+```
+
+Now run prop.test for each of the cities in your dataset, and extract both the proportion of unsolved homicides and the confidence interval for each. Do this within a “tidy” pipeline, making use of purrr::map, purrr::map2, list columns and unnest as necessary to create a tidy dataframe with estimated proportions and CIs for each city.
+
+```{r}
+# first - write a function to perform prop.test
+prop_test_fun = function(df){
+  df_summary = 
+    df %>% 
+    summarize(
+      total = n(),
+      unsolved = sum(resolution == "unsolved"))
+  
+  df_test = 
+    prop.test(x = df_summary$unsolved, n = df_summary$total) %>% 
+    broom::tidy()
+  
+  results_df = 
+    df_test %>% 
+    select(estimate, starts_with("conf."))
+  
+  results_df
+}
+
+# another example to test the function
+albuquerque = 
+  homicide %>% 
+  filter(city_state == "Albuquerque, NM") 
+
+albu_result = prop_test_fun(albuquerque)
+
+
+# second - iterate over cities
+results_df = 
+  homicide %>% 
+  group_by(city_state) %>% 
+  nest() %>% 
+  mutate(
+    test_results = map(data, prop_test_fun),
+    results_df = map(test_results, bind_rows)
+  ) %>% 
+  select(-data, -test_results) %>% 
+  unnest(results_df)
+
+```
+
+Create a plot that shows the estimates and CIs for each city – check out geom_errorbar for a way to add error bars based on the upper and lower limits. Organize cities according to the proportion of unsolved homicides.
+
+```{r}
+results_df %>% 
+  mutate(city_state = fct_reorder(city_state, estimate)) %>% 
+  ggplot(aes(x = city_state, y = estimate)) +
+  geom_point() +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high)) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
+```
+
+
+## Problem 2
+
+Create a tidy dataframe containing data from all participants, including the subject ID, arm, and observations over time:
+
+ - Start with a dataframe containing all file names; the list.files function will help
+ 
+```{r}
+files = 
+  tibble(
+    filename = list.files("./data/")
+  )
+
+```
+
+ - Iterate over file names and read in data for each subject using purrr::map and saving the result as a new variable in the dataframe
+
+```{r}
+
+read_data = function(file_name){
+  read_csv(paste0("./data/", file_name))
+}
+
+files = 
+  files %>% 
+  mutate(file_data = map(filename, read_data))
+
+```
+
+ - Tidy the result; manipulate file names to include control arm and subject ID, make sure weekly observations are “tidy”, and do any other tidying that’s necessary
+
+```{r}
+files = 
+  files %>% 
+  separate(filename, into = c("arm", "id"), sep = "_") %>% 
+  mutate(id = str_replace(id, "\\.csv$", "")) %>% 
+  unnest(file_data) %>% 
+  pivot_longer(
+    week_1:week_8,
+    names_prefix = "week_",
+    names_to = "week",
+    values_to = "observ_count"
+  )
+
+files = 
+  files %>% 
+  mutate(week = as.factor(week),
+         arm = as.factor(arm),
+         id = as.factor(id)
+  )
+
+```
+
+Make a spaghetti plot showing observations on each subject over time, and comment on differences between groups. (line plots with many lines together)
+
+```{r}
+# control group
+files %>% 
+  filter(arm == "con") %>% 
+  ggplot(aes(x = week, y = observ_count, group = id, color = id)) +
+  geom_point() +
+  geom_line()
+
+# experimental group
+files %>% 
+  filter(arm == "exp") %>% 
+  ggplot(aes(x = week, y = observ_count, group = id, color = id)) +
+  geom_point() +
+  geom_line() 
+
+```
+
+
+## Problem 3
+
+The code chunk below loads the iris dataset from the tidyverse package and introduces some missing values in each column. The purpose of this problem is to fill in those missing values.
+
+```{r}
+library(tidyverse)
+
+set.seed(10)
+
+iris_with_missing = iris %>% 
+  map_df(~replace(.x, sample(1:150, 20), NA)) %>%
+  mutate(Species = as.character(Species))
+```
+
+There are two cases to address:
+
+ - For numeric variables, you should fill in missing values with the mean of non-missing values
+ - For character variables, you should fill in missing values with "virginica"
+
+Write a function that takes a vector as an argument; replaces missing values using the rules defined above; and returns the resulting vector. Apply this function to the columns of iris_with_missing using a map statement.
+
+```{r}
+deal_with_na <- function(x){
+  if(is.numeric(x)){
+    replace_na(x, round(mean(x, na.rm = T), digits = 2))
+  }
+  else if(is.character(x)){
+    replace_na(x, "virginica")
+  }
+}
+
+cleaned_iris = map(iris_with_missing, deal_with_na) %>% 
+  as.data.frame()
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
